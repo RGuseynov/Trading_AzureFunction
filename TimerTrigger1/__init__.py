@@ -44,9 +44,21 @@ def main(mytimer: func.TimerRequest) -> None:
         headers = {'X-CoinAPI-Key' : coinAPI_key}
         response = requests.get(url, headers=headers)
         data = response.json()
-        last = data[1]
     except Exception as e:
         logging.info(e)
+
+    datetime_now = datetime.datetime.utcnow()
+    datetime_now = datetime_now.replace(microsecond=0, second=0, minute=0)
+    actual_date_stamp = None
+
+    logging.info("getting the datetime")
+
+    for row in data[:3]:
+        row_periode_end = datetime.datetime.strptime(row["time_period_end"], '%Y-%m-%dT%H:%M:%S.%f0000Z')
+        if(datetime_now == row_periode_end):
+            logging.info("equal found")
+            actual_date_stamp = row
+    last = actual_date_stamp
 
     cnxn = pyodbc.connect("Driver={ODBC Driver 17 for SQL Server};Server=tcp:sqlserver-trading.database.windows.net,1433;Database=financial;Uid=MasterTrader;Pwd="+database_password+";Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;")
     cursor = cnxn.cursor()
@@ -54,15 +66,15 @@ def main(mytimer: func.TimerRequest) -> None:
 
     try:
         cursor.execute("INSERT INTO bitcoin_1H_bitstampUSD_latest VALUES (?, ?, ?, ?, ?, ?)", 
-                last["time_period_end"][:-5], last["price_open"], last["price_high"], last["price_low"],
-                last["price_close"], last["volume_traded"])
+                last["time_period_start"][:-5], last["price_open"], last["price_high"], 
+                last["price_low"], last["price_close"], last["volume_traded"])
         cnxn.commit()
         logging.info("price insert done")
     except Exception as e:
         logging.info(e)
 
 
-    sql_query = ("SELECT TOP(50) * FROM bitcoin_1H_bitstampUSD_latest ORDER BY Timestamp DESC")
+    sql_query = ("SELECT TOP(200) * FROM bitcoin_1H_bitstampUSD_latest ORDER BY Timestamp DESC")
     df = pd.read_sql(sql_query, cnxn)
     logging.info("select request done")
     logging.info(df)
@@ -125,9 +137,22 @@ def main(mytimer: func.TimerRequest) -> None:
 # for last in data[1:]:
 #     try:
 #         cursor.execute("INSERT INTO bitcoin_1H_bitstampUSD_latest VALUES (?, ?, ?, ?, ?, ?)", 
-#                 last["time_period_end"][:-5], last["price_open"], last["price_high"], last["price_low"],
+#                 last["time_period_start"][:-5], last["price_open"], last["price_high"], last["price_low"],
 #                 last["price_close"], last["volume_traded"])
 #         cnxn.commit()
-#         logging.info("price insert done")
 #     except Exception as e:
-#         logging.info(e)
+#         print(e)
+
+
+
+
+# datetime_now = datetime.datetime.utcnow()
+# datetime_now = datetime_now.replace(microsecond=0, second=0, minute=0)
+# actual_date_stamp = None
+
+# for row in data[:3]:
+#     row_periode_end = datetime.datetime.strptime(row["time_period_end"], '%Y-%m-%dT%H:%M:%S.%f0000Z')
+#     if(datetime_now == row_period_end["time_period_end"]):
+#         print("equal")
+#         actual_date_stamp = row
+# row
