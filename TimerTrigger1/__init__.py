@@ -12,24 +12,17 @@ import azure.functions as func
 
 from . import features_engineering as fe
 
-# from azure.identity import DefaultAzureCredential
-# from azure.identity import ManagedIdentityCredential
-# from azure.keyvault.secrets import SecretClient
-
 
 def main(mytimer: func.TimerRequest) -> None:
-    # credential = DefaultAzureCredential()
-    # credential = ManagedIdentityCredential()
-    # secret_client = SecretClient(vault_url="https://tradingkeyvault.vault.azure.net/", credential=credential)
-    # secret = secret_client.get_secret("sqlserver-trading")
-    # logging.info(f"secret name is: {secret.name}")
+
+    logging.getLogger().setLevel(logging.INFO)
 
     logging.info('enter function')
     utc_timestamp = datetime.datetime.utcnow().replace(
         tzinfo=datetime.timezone.utc).isoformat()
 
     if mytimer.past_due:
-        logging.info('The timer is past due!')
+        logging.warning('The timer is past due!')
     logging.info('Python timer trigger function ran at %s', utc_timestamp)
 
 
@@ -37,7 +30,7 @@ def main(mytimer: func.TimerRequest) -> None:
         coinAPI_key = os.environ['COIN_API2']
         database_password = os.environ['SQL_SERVER_CONNECTION']
     except Exception as e:
-        logging.info(e)
+        logging.error(e)
 
     try:
         url = 'https://rest.coinapi.io/v1/ohlcv/BITSTAMP_SPOT_BTC_USD/latest?period_id=1HRS'
@@ -45,7 +38,7 @@ def main(mytimer: func.TimerRequest) -> None:
         response = requests.get(url, headers=headers)
         data = response.json()
     except Exception as e:
-        logging.info(e)
+        logging.error(e)
 
     datetime_now = datetime.datetime.utcnow()
     datetime_now = datetime_now.replace(microsecond=0, second=0, minute=0)
@@ -56,13 +49,16 @@ def main(mytimer: func.TimerRequest) -> None:
     for row in data[:3]:
         row_periode_end = datetime.datetime.strptime(row["time_period_end"], '%Y-%m-%dT%H:%M:%S.%f0000Z')
         if(datetime_now == row_periode_end):
-            logging.info("equal found")
+            logging.info("equal datetime found")
             actual_date_stamp = row
     last = actual_date_stamp
 
-    cnxn = pyodbc.connect("Driver={ODBC Driver 17 for SQL Server};Server=tcp:sqlserver-trading.database.windows.net,1433;Database=financial;Uid=MasterTrader;Pwd="+database_password+";Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;")
-    cursor = cnxn.cursor()
-    logging.info("connection done")
+    try:
+        cnxn = pyodbc.connect("Driver={ODBC Driver 17 for SQL Server};Server=tcp:sqlserver-trading.database.windows.net,1433;Database=financial;Uid=MasterTrader;Pwd="+database_password+";Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;")
+        cursor = cnxn.cursor()
+        logging.info("connection to SQL Server done")
+    except Exception as e:
+        logging.error(e)
 
     try:
         cursor.execute("INSERT INTO bitcoin_1H_bitstampUSD_latest VALUES (?, ?, ?, ?, ?, ?)", 
@@ -78,16 +74,14 @@ def main(mytimer: func.TimerRequest) -> None:
     df = pd.read_sql(sql_query, cnxn)
     logging.info("select request done")
     logging.info(df)
+
     try:
         df = df.iloc[::-1].reset_index()
-    except Exception as e:       
-        logging.info(e)
-    try:
         df = df.drop(['Timestamp', 'index'], axis=1)
-    except Exception as e:
-        logging.info(e)
+    except Exception as e:       
+        logging.error(e)
 
-    df = fe.add_TA(df)
+    fe.add_TA(df)
     logging.info("TA_added")
     logging.info(df)
     last_row = df.tail(1)
@@ -98,16 +92,15 @@ def main(mytimer: func.TimerRequest) -> None:
             xgb_model = pickle.load(file)      
         logging.info("model loaded")
     except Exception as e:
-        logging.info(e)
+        logging.error(e)
 
     try:
         last_row = xgb.DMatrix(last_row)
+        logging.info("DMatrix created")
     except Exception as e:
-        logging.info(e)
+        logging.error(e)
 
-    logging.info("DMatrix created")
     prediction = xgb_model.predict(last_row)
-
     logging.info("prediction:")
     logging.info(prediction)
 
@@ -121,9 +114,11 @@ def main(mytimer: func.TimerRequest) -> None:
         cnxn.commit()
         logging.info("prediction insert done")
     except Exception as e:
-        logging.info(e)
+        logging.error(e)
 
 
+
+#CODE BELOW TO EXECUTE INITIALY OR IF AZURE FUNCTION STOP WORKING IN ORDER TO REFRESH MISSING DATA
 
 # url = 'https://rest.coinapi.io/v1/ohlcv/BITSTAMP_SPOT_BTC_USD/latest?period_id=1HRS'
 # headers = {'X-CoinAPI-Key' : coinAPI_key}
